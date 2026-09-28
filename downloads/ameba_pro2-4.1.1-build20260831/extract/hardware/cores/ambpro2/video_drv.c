@@ -1,0 +1,552 @@
+#include "Arduino.h"
+
+#include "video_drv.h"
+#include "hal_video.h"
+#include "video_api.h"
+#include "module_video.h"
+#include "isp_ctrl_api.h"
+
+uint32_t image_addr = 0;
+uint32_t image_len = 0;
+int voe_heap_size = 0;
+
+static video_pre_init_params_t init_params;
+
+static isp_control ISPCtrl = {
+    .Brightness = 0,
+    .Contrast = 50,
+    .Saturation = 50,
+    .Sharpness = 50,
+    .LDC = 0,
+    .WDRMode = 0,
+    .WDRLevel = 50,
+    .ExposureMode = 1,
+    .AWB = 1,
+    .GrayMode = 0,
+    .PowerLineFreq = 3,
+    .DayNightMode = 0,
+    .en_3DNR = 1,
+};
+
+static video_params_t video_params = {
+    .stream_id = 0,
+    .type = 0,
+    .resolution = 0,
+    .width = 0,
+    .height = 0,
+    .bps = 0,
+    .fps = 0,
+    .gop = 0,
+    .rc_mode = 0,
+    .jpeg_qlevel = 5,
+    .use_static_addr = 1,
+    .rotation = 0,
+    .jpeg_crop_parm = {
+                       .enable = 0,
+                       .xmin = 0,
+                       .ymin = 0,
+                       .xmax = 0,
+                       .ymax = 0,
+                       },
+    .meta_enable = 0,
+    .level = 0,
+    .profile = 0,
+    .cavlc = 1,
+    .dyn_scale_up_en = 0,
+};
+
+static video_params_t video_v4_params = {
+    .stream_id = 0,
+    .type = 0,
+    .resolution = 0,
+    .width = 0,
+    .height = 0,
+    .bps = 0,
+    .fps = 0,
+    .gop = 0,
+    .direct_output = 0,
+    .use_static_addr = 1,
+    .use_roi = 1,
+    .roi = {
+            .xmin = 0,
+            .ymin = 0,
+            .xmax = 0,
+            .ymax = 0,
+            },
+};
+
+static encode_rc_parm_t encode_rc_params = {
+    .minQp = 0,    // for CBR/VBR
+    .maxQp = 0,    // for CBR/VBR
+};
+
+void ISPControlReset(void)
+{
+    isp_set_brightness(ISPCtrl.Brightness);
+    isp_set_contrast(ISPCtrl.Contrast);
+    isp_set_saturation(ISPCtrl.Saturation);
+    isp_set_sharpness(ISPCtrl.Sharpness);
+    isp_set_ldc(ISPCtrl.LDC);
+    isp_set_wdr_mode(ISPCtrl.WDRMode);
+    isp_set_exposure_mode(ISPCtrl.ExposureMode);
+    isp_set_awb_ctrl(ISPCtrl.AWB);
+    isp_set_gray_mode(ISPCtrl.GrayMode);
+    isp_set_power_line_freq(ISPCtrl.PowerLineFreq);
+    isp_set_day_night(ISPCtrl.DayNightMode);
+    isp_set_day_night(ISPCtrl.en_3DNR);
+}
+
+extern int set_uvc_string(char *product_name, char *serial_name, unsigned short bcdDevice);
+void cameraPreConfig_usb_uvcd(unsigned char *uuid, const char *usb_uvcd_driver_name)
+{
+    // video_pre_init_params_t init_params;
+    memset(&init_params, 0x00, sizeof(video_pre_init_params_t));
+    init_params.meta_enable = 1;
+    init_params.meta_size = VIDEO_META_USER_SIZE;    // 0x40
+    memcpy(init_params.video_meta_uuid, uuid, VIDEO_META_UUID_SIZE);
+    video_pre_init_setup_parameters(&init_params);
+
+    set_uvc_string((char *)usb_uvcd_driver_name, "012345678", 0X0010);
+}
+
+int cameraConfig(int v1_enable, int v1_w, int v1_h, int v1_bps, int v1_snapshot,
+                 int v2_enable, int v2_w, int v2_h, int v2_bps, int v2_snapshot,
+                 int v3_enable, int v3_w, int v3_h, int v3_bps, int v3_snapshot,
+                 int v4_enable, int v4_w, int v4_h)
+{
+    voe_heap_size = video_voe_presetting(v1_enable, v1_w, v1_h, v1_bps, v1_snapshot,
+                                         v2_enable, v2_w, v2_h, v2_bps, v2_snapshot,
+                                         v3_enable, v3_w, v3_h, v3_bps, v3_snapshot,
+                                         v4_enable, v4_w, v4_h);
+    // amb_ard_printf(ARD_LOG_INF, "\r\n[INFO] voe_heap_size assigned.\n");
+    return voe_heap_size;
+}
+
+mm_context_t *cameraInit(void)
+{
+    mm_context_t *videoData = (mm_context_t *)rtw_malloc(sizeof(mm_context_t));
+    if (!videoData) {
+        return NULL;
+    }
+    memset(videoData, 0, sizeof(mm_context_t));
+    videoData->queue_num = 1;    // default 1 queue, can set multiple queue by command MM_CMD_SET_QUEUE_NUM
+
+    videoData->module = &video_module;
+    if (!videoData->module) {
+        goto mm_open_fail;
+    }
+
+    videoData->priv = video_module.create(videoData);
+
+    if (!videoData->priv) {
+        goto mm_open_fail;
+    }
+    // amb_ard_printf(ARD_LOG_INF, "\r\n[INFO] module open - free heap %d\n", xPortGetFreeHeapSize());
+
+    return videoData;
+
+mm_open_fail:
+    amb_ard_printf(ARD_LOG_ERR, "\r\n[ERROR] cameraInit failed\n");
+    if (videoData->module) {
+        free(videoData->module);
+    }
+    if (videoData->priv) {
+        video_module.destroy(videoData->priv);
+    }
+    if (videoData) {
+        free(videoData);
+    }
+    return NULL;
+}
+
+void cameraOpen(mm_context_t *p, void *p_priv, int stream_id, int type, int res, int w, int h, int bps, int fps, int gop, int rc_mode, int snapshot, int jpeg_qlevel, int video_rotation)
+{
+    // assign value parsing from user level
+    video_params.stream_id = stream_id;
+    // check if there is video with snapshot
+    if (snapshot == 1) {
+        if (type == VIDEO_HEVC) {
+            type = VIDEO_HEVC_JPEG;
+        } else if (type == VIDEO_H264) {
+            type = VIDEO_H264_JPEG;
+        }
+    }
+
+    video_params.type = type;
+    video_params.resolution = res;
+    video_params.width = w;
+    video_params.height = h;
+    video_params.bps = bps;
+    video_params.fps = fps;
+    video_params.gop = gop;
+    video_params.rc_mode = rc_mode;
+    video_params.jpeg_qlevel = jpeg_qlevel;
+    video_params.rotation = video_rotation;
+
+    // amb_ard_printf(ARD_LOG_INF, "\r\n[INFO] %d    %d    %d    %d    %d    %d    %d    %d    %d\n", stream_id, type, res, w, h, bps, fps, gop, rc_mode);
+
+    if (p) {
+        // mm_module_ctrl(p, CMD_VIDEO_SET_VOE_HEAP, voe_heap_size);
+        video_control(p_priv, CMD_VIDEO_SET_PARAMS, (int)&video_params);
+        mm_module_ctrl(p, MM_CMD_SET_QUEUE_LEN, fps * 3);
+        mm_module_ctrl(p, MM_CMD_INIT_QUEUE_ITEMS, MMQI_FLAG_DYNAMIC);
+        if ((type == VIDEO_JPEG) || (type == VIDEO_HEVC_JPEG) || (type == VIDEO_H264_JPEG)) {
+            mm_module_ctrl(p, CMD_VIDEO_SNAPSHOT, 0);
+        }
+        // amb_ard_printf(ARD_LOG_INF, "\r\n[INFO] cameraOpen done\n");
+    } else {
+        // amb_ard_printf(ARD_LOG_ERR, "\r\n[ERROR] cameraOpen fail\n");
+    }
+}
+
+void cameraOpenNN(mm_context_t *p, void *p_priv, int stream_id, int type, int res, int w, int h, int bps, int fps, int gop, int direct_output)
+{
+    // assign value parsing from user level
+    video_v4_params.stream_id = stream_id;
+    video_v4_params.type = type;
+    video_v4_params.resolution = res;
+    video_v4_params.width = w;
+    video_v4_params.height = h;
+    video_v4_params.bps = bps;
+    video_v4_params.fps = fps;
+    video_v4_params.gop = gop;
+    video_v4_params.direct_output = direct_output;
+    video_v4_params.use_static_addr = 1;
+
+    // define NN region of interest
+    video_v4_params.use_roi = 1;
+    video_v4_params.roi.xmin = 0;
+    video_v4_params.roi.ymin = 0;
+    video_v4_params.roi.xmax = 1920;
+    video_v4_params.roi.ymax = 1080;
+
+    // amb_ard_printf(ARD_LOG_INF, "\r\n[INFO] V4 %d    %d    %d    %d    %d    %d    %d    %d    %d\n", stream_id, type, res, w, h, bps, fps, gop, direct_output);
+
+    if (p) {
+        video_control(p_priv, CMD_VIDEO_SET_PARAMS, (int)&video_v4_params);
+        mm_module_ctrl(p, MM_CMD_SET_QUEUE_LEN, 2);
+        mm_module_ctrl(p, MM_CMD_INIT_QUEUE_ITEMS, MMQI_FLAG_DYNAMIC);
+        // amb_ard_printf(ARD_LOG_INF, "\r\n[INFO] cameraOpen done\n");
+    } else {
+        // amb_ard_printf(ARD_LOG_ERR, "\r\n[ERROR] cameraOpen fail\n");
+    }
+}
+
+void cameraOpenUVCD(mm_context_t *p, int stream_id, int type, int res, int w, int h, int bps, int fps, int gop, int rc_mode, int snapshot, int use_static_addr, int meta_enable, int voe_heap_size)
+{
+    // assign value parsing from user level
+    video_params.stream_id = stream_id;
+    // check if there is video with snapshot
+    if (snapshot == 1) {
+        if (type == VIDEO_HEVC) {
+            type = VIDEO_HEVC_JPEG;
+        } else if (type == VIDEO_H264) {
+            type = VIDEO_H264_JPEG;
+        }
+    }
+
+    video_params.type = type;
+    video_params.resolution = res;
+    video_params.width = w;
+    video_params.height = h;
+    video_params.bps = bps;
+    video_params.fps = fps;
+    video_params.gop = gop;
+    video_params.rc_mode = rc_mode;
+    video_params.use_static_addr = use_static_addr;
+    video_params.meta_enable = meta_enable;
+
+    if (p) {
+        mm_module_ctrl(p, CMD_VIDEO_SET_VOE_HEAP, voe_heap_size);
+        mm_module_ctrl(p, CMD_VIDEO_SET_PARAMS, (int)&video_params);
+        mm_module_ctrl(p, MM_CMD_SET_QUEUE_LEN, 1);
+        mm_module_ctrl(p, MM_CMD_INIT_QUEUE_ITEMS, MMQI_FLAG_DYNAMIC);
+    }
+}
+
+void cameraOpenWSViewer(mm_context_t *p, void *p_priv, int stream_id, int type, int res, int w, int h, int bps, int fps, int gop, int rc_mode, int snapshot, int jpeg_qlevel, int video_rotation, uint32_t h264_level, uint32_t h264_profile, uint32_t entropy_mode, uint32_t rc_minQp, uint32_t rc_maxQp)
+{
+    // assign value parsing from user level
+    video_params.stream_id = stream_id;
+    // check if there is video with snapshot
+    if (snapshot == 1) {
+        if (type == VIDEO_HEVC) {
+            type = VIDEO_HEVC_JPEG;
+        } else if (type == VIDEO_H264) {
+            type = VIDEO_H264_JPEG;
+        }
+    }
+
+    video_params.type = type;
+    video_params.resolution = res;
+    video_params.width = w;
+    video_params.height = h;
+    video_params.bps = bps;
+    video_params.fps = fps;
+    video_params.gop = gop;
+    video_params.rc_mode = rc_mode;
+    video_params.jpeg_qlevel = jpeg_qlevel;
+    video_params.rotation = video_rotation;
+
+    video_params.level = h264_level;
+    video_params.profile = h264_profile;
+    video_params.cavlc = entropy_mode;
+
+    if (p) {
+        // mm_module_ctrl(p, CMD_VIDEO_SET_VOE_HEAP, voe_heap_size);
+        video_control(p_priv, CMD_VIDEO_SET_PARAMS, (int)&video_params);
+        mm_module_ctrl(p, MM_CMD_SET_QUEUE_LEN, fps * 3);
+        mm_module_ctrl(p, MM_CMD_INIT_QUEUE_ITEMS, MMQI_FLAG_DYNAMIC);
+        if ((type == VIDEO_JPEG) || (type == VIDEO_HEVC_JPEG) || (type == VIDEO_H264_JPEG)) {
+            mm_module_ctrl(p, CMD_VIDEO_SNAPSHOT, 0);
+        }
+
+        encode_rc_params.minQp = rc_minQp;
+        encode_rc_params.maxQp = rc_maxQp;
+
+        mm_module_ctrl(p, CMD_VIDEO_SET_RCPARAM, (int)&encode_rc_params);
+        amb_ard_printf(ARD_LOG_INF, "\r\n[INFO] cameraOpenWSViewer done\n");
+    } else {
+        // amb_ard_printf(ARD_LOG_ERR, "\r\n[ERROR] cameraOpenWSViewer fail\n");
+    }
+}
+
+void cameraOpenRaw(mm_context_t *p, void *p_priv, int stream_id, int type, int res, int w, int h, int bps, int fps, int gop, int rc_mode)
+{
+    // assign value parsing from user level
+    video_params.stream_id = stream_id;
+    video_params.type = type;
+    video_params.resolution = res;
+    video_params.width = w;
+    video_params.height = h;
+    video_params.bps = bps;
+    video_params.fps = fps;
+    video_params.gop = gop;
+    video_params.rc_mode = rc_mode;
+
+    // amb_ard_printf(ARD_LOG_INF, "\r\n[INFO] %d    %d    %d    %d    %d    %d    %d    %d    %d\n", stream_id, type, res, w, h, bps, fps, gop, rc_mode);
+
+    if (p) {
+        // mm_module_ctrl(p, CMD_VIDEO_SET_VOE_HEAP, voe_heap_size);
+        video_control(p_priv, CMD_VIDEO_SET_PARAMS, (int)&video_params);
+        mm_module_ctrl(p, MM_CMD_SET_QUEUE_LEN, 3);
+        mm_module_ctrl(p, MM_CMD_INIT_QUEUE_ITEMS, MMQI_FLAG_DYNAMIC);
+        if ((type == VIDEO_JPEG) || (type == VIDEO_HEVC_JPEG) || (type == VIDEO_H264_JPEG)) {
+            mm_module_ctrl(p, CMD_VIDEO_SNAPSHOT, 0);
+        }
+        // amb_ard_printf(ARD_LOG_INF, "\r\n[INFO] cameraOpen done\n");
+    } else {
+        // amb_ard_printf(ARD_LOG_ERR, "\r\n[ERROR] cameraOpen fail\n");
+    }
+}
+
+void cameraReSetParams(mm_context_t *p, int type, int fps, int gop, int use_static_addr, int channel)
+{
+    video_params.type = type;
+    video_params.fps = fps;
+    video_params.gop = gop;
+    video_params.use_static_addr = use_static_addr;
+
+    if (p) {
+        mm_module_ctrl(p, CMD_VIDEO_SET_PARAMS, (int)&video_params);
+        mm_module_ctrl(p, CMD_VIDEO_APPLY, channel);
+    }
+}
+
+void cameraUpdateParams(mm_context_t *p, void *p_priv, int stream_id, int type, int res, int w, int h, int bps, int fps, int gop, int rc_mode, int snapshot, int jpeg_qlevel, int video_rotation)
+{
+
+    if (p) {
+        video_params.stream_id = stream_id;
+        video_params.type = type;
+        video_params.resolution = res;
+        video_params.width = w;
+        video_params.height = h;
+        video_params.bps = bps;
+        video_params.fps = fps;
+        video_params.gop = gop;
+        video_params.rc_mode = rc_mode;
+        video_params.jpeg_qlevel = jpeg_qlevel;
+        video_params.rotation = video_rotation;
+
+        if (mm_module_ctrl(p, CMD_VIDEO_STREAM_STOP, video_params.stream_id) == -1) {
+            printf("[cameraUpdateParams] CTRL CMD_VIDEO_STREAM_STOP HAS FAILED\r\n");
+        }
+        if (mm_module_ctrl(p, CMD_VIDEO_SET_PARAMS, (int)&video_params) == -1) {
+            printf("[cameraUpdateParams] CTRL CMD_VIDEO_SET_PARAMS HAS FAILED\r\n");
+        }
+        if (mm_module_ctrl(p, CMD_VIDEO_APPLY, video_params.stream_id) == -1) {
+            printf("[cameraUpdateParams] CTRL CMD_VIDEO_APPLY HAS FAILED\r\n");
+        }
+    }
+}
+
+// set VOE heapsize
+void cameraSetHeapSize(void *p)
+{
+    mm_module_ctrl(p, CMD_VIDEO_SET_VOE_HEAP, voe_heap_size);
+}
+
+// set the queue length of video object
+void cameraSetQLen(mm_context_t *p, int length)
+{
+    mm_module_ctrl(p, MM_CMD_SET_QUEUE_LEN, length);
+}
+
+// set the queue item of video object
+void cameraSetQItem(mm_context_t *p)
+{
+    mm_module_ctrl(p, MM_CMD_INIT_QUEUE_ITEMS, MMQI_FLAG_DYNAMIC);
+}
+
+// clear the queue item of video object
+void cameraClearQItem(mm_context_t *p)
+{
+    mm_module_ctrl(p, MM_CMD_CLEAR_QUEUE_ITEMS, MMQI_FLAG_DYNAMIC);
+}
+
+void cameraStart(void *p, int channel)
+{
+    video_control(p, CMD_VIDEO_APPLY, channel);
+}
+
+void cameraYUV(void *p)
+{
+    video_control(p, CMD_VIDEO_YUV, 2);
+}
+
+void cameraRawStart(void *p, int channel)
+{
+    video_control(p, CMD_VIDEO_APPLY, channel);
+    video_control(p, CMD_VIDEO_YUV, 2);
+    hal_video_isp_set_rawfmt(channel, 1);    // set raw format to NV16 for RAW stream
+    amb_ard_printf(ARD_LOG_INF, "\r\n[INFO] %s Raw Started on channel %d\n", __FUNCTION__, channel);
+}
+
+void cameraSnapshot(void *p, int arg)
+{
+    video_control(p, CMD_VIDEO_SNAPSHOT, arg);
+}
+
+void cameraSnapshotRegCB(mm_context_t *p, int (*ssCB)(uint32_t, uint32_t))
+{
+    mm_module_ctrl(p, CMD_VIDEO_SNAPSHOT_CB, (int)ssCB);
+}
+
+mm_context_t *cameraDeinit(mm_context_t *p)
+{
+    mm_queue_item_t *tmp_item;
+    mm_context_t *video_data = (mm_context_t *)rtw_malloc(sizeof(mm_context_t));
+    video_data = p;
+    for (int i = 0; i < video_data->queue_num; i++) {
+        if (video_data->port[i].output_recycle && video_data->port[i].output_ready) {
+            while (xQueueReceive(video_data->port[i].output_ready, (void *)&tmp_item, 0) == pdTRUE) {
+                xQueueSend(video_data->port[i].output_recycle, (void *)&tmp_item, 0);
+            }
+            // amb_ard_printf(ARD_LOG_INF, "\r\n[INFO] module close - move item to recycle\n");
+            while (xQueueReceive(video_data->port[i].output_recycle, (void *)&tmp_item, 0) == pdTRUE) {
+                // amb_ard_printf(ARD_LOG_INF, "\r\n[INFO] module close - tmp_item %x\n",(unsigned int)tmp_item);
+                if (tmp_item) {
+                    // amb_ard_printf(ARD_LOG_INF, "\r\n[INFO] module close - data_addr %x\n", (unsigned int)tmp_item->data_addr);
+                    if (i == 0) {
+                        if (tmp_item->data_addr) {
+                            video_del_item(video_data->priv, (void *)tmp_item->data_addr);
+                        }
+                    } else {
+                        if (tmp_item->data_addr) {
+                            free((void *)tmp_item->data_addr);
+                        }
+                    }
+                    tmp_item->data_addr = 0;
+                    free(tmp_item);
+                    tmp_item = NULL;
+                }
+                xQueueSend(video_data->port[i].output_ready, (void *)&tmp_item, 0);
+            }
+            // amb_ard_printf(ARD_LOG_INF, "\r\n[INFO] module close - clean resource in recycle\n");
+            //  create port
+            vQueueDelete(video_data->port[i].output_recycle);
+            vQueueDelete(video_data->port[i].output_ready);
+
+            // amb_ard_printf(ARD_LOG_INF, "\r\n[INFO] module close - free port\n");
+        }
+    }
+    // cannot delete item after destroy
+    video_destroy(video_data->priv);
+    free(video_data);
+    // amb_ard_printf(ARD_LOG_INF, "\r\n[INFO] module close - free context\n");
+    // amb_ard_printf(ARD_LOG_INF, "\r\n[INFO] module close - free heap %d\n", xPortGetFreeHeapSize());
+    video_deinit();
+    return NULL;
+}
+
+void cameraStopVideoStream(void *p, int channel)
+{
+    video_ctx_t *ctx = (video_ctx_t *)p;
+    memset(&(ctx->meta_data), 0, sizeof(video_meta_t));
+    video_close(channel);
+
+    if (video_open_status() == 0) {
+        video_deinit();
+    }
+}
+
+int cameraGetCtx(mm_context_t *p, int ch)
+{
+    int arduino_is_output_ready = 0;
+    mm_queue_item_t *output_item;
+
+    mm_context_t *video_data = (mm_context_t *)rtw_malloc(sizeof(mm_context_t));
+
+    video_data = p;
+
+    // Peek an item from the queue
+    if (xQueuePeek(video_data->port[ch].output_recycle, &output_item, 0) == pdTRUE) {
+        // Successfully peeked an item from the queue without removing it
+        arduino_is_output_ready = 1;
+    } else {
+        arduino_is_output_ready = 0;
+    }
+
+    return arduino_is_output_ready;
+}
+
+int cameraGetStatus()
+{
+    return video_open_status();
+}
+
+void setROI(int width, int height)
+{
+    video_roi_t roi;
+
+    roi.xmin = 0;
+    roi.ymin = 0;
+    roi.xmax = roi.xmin + width;
+    roi.ymax = roi.ymin + height;
+    video_params.use_roi = 1;
+
+    memcpy(&(video_params.roi), &roi, sizeof(roi));
+}
+
+void dynScaleDown(mm_context_t *p)
+{
+    video_params.dyn_scale_up_en = 0;
+    mm_module_ctrl(p, CMD_VIDEO_SET_PARAMS, (int)&video_params);
+}
+
+void dynScaleUp(mm_context_t *p)
+{
+    video_params.dyn_scale_up_en = 1;
+    mm_module_ctrl(p, CMD_VIDEO_SET_PARAMS, (int)&video_params);
+}
+
+void setDynROI(mm_context_t *p, isp_crop_t *crop_info)
+{
+    mm_module_ctrl(p, CMD_VIDEO_SET_DYN_ROI, (int)crop_info);
+}
+
+void ROIStat(mm_context_t *p, int use_roi)
+{
+    mm_module_ctrl(p, CMD_VIDEO_GET_ROI_STAT, (int)&use_roi);
+}

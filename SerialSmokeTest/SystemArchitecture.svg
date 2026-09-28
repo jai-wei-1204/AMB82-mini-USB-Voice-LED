@@ -1,0 +1,108 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" role="img" aria-labelledby="title desc">
+  <title id="title">AMB82-mini USB 語音方向燈系統架構圖</title>
+  <desc id="desc">使用者說話後，由電腦瀏覽器的 Web Speech API 辨識與解析，再透過 Web Serial API 和 USB COM 埠傳給 AMB82-mini。開發板控制藍綠 LED 並回傳狀態給網頁。</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f6f3ea"/>
+      <stop offset="1" stop-color="#e8f1ec"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="8" stdDeviation="7" flood-color="#18313a" flood-opacity=".14"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto-start-reverse">
+      <path d="M 1 1 L 11 6 L 1 11 z" fill="#44606a"/>
+    </marker>
+    <style>
+      text { font-family: "Microsoft JhengHei", "Noto Sans TC", Arial, sans-serif; fill: #102b38; }
+      .title { font-size: 43px; font-weight: 800; }
+      .subtitle { font-size: 19px; fill: #526a72; }
+      .group { font-size: 25px; font-weight: 800; }
+      .node-title { font-size: 23px; font-weight: 800; }
+      .node-text { font-size: 18px; fill: #3e5962; }
+      .small { font-size: 16px; fill: #506a72; }
+      .label { font-size: 17px; font-weight: 700; fill: #314c55; }
+      .box { stroke: #c9d8d3; stroke-width: 2; }
+      .line { stroke: #44606a; stroke-width: 4; fill: none; marker-end: url(#arrow); }
+      .return { stroke: #277f69; stroke-width: 4; fill: none; stroke-dasharray: 10 8; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <rect width="1600" height="1000" fill="url(#bg)"/>
+  <rect x="42" y="34" width="1516" height="932" rx="28" fill="#fffdfa" stroke="#d3dfda" stroke-width="2"/>
+  <text x="96" y="112" class="title">AMB82-mini USB 語音方向燈｜系統架構圖</text>
+  <text x="96" y="148" class="subtitle">語音辨識在電腦瀏覽器執行；AMB82-mini 只負責接收序列指令、控制 LED 與回傳狀態。</text>
+
+  <!-- User input -->
+  <rect x="95" y="220" width="300" height="210" rx="22" fill="#fff2d9" class="box" filter="url(#shadow)"/>
+  <text x="245" y="275" text-anchor="middle" class="group">使用者</text>
+  <text x="245" y="325" text-anchor="middle" class="node-title">麥克風輸入語音</text>
+  <text x="245" y="360" text-anchor="middle" class="node-text">「左邊開燈」</text>
+  <text x="245" y="388" text-anchor="middle" class="node-text">「右邊 4 次」</text>
+
+  <!-- Browser group -->
+  <rect x="475" y="190" width="515" height="610" rx="26" fill="#eef7fa" stroke="#a9cbd4" stroke-width="3"/>
+  <text x="515" y="242" class="group">電腦端：Chrome / Edge 網頁介面</text>
+  <rect x="520" y="275" width="425" height="125" rx="18" fill="#ffffff" class="box"/>
+  <text x="548" y="324" class="node-title">Web Speech API（zh-TW）</text>
+  <text x="548" y="358" class="node-text">將麥克風語音轉換為文字</text>
+
+  <rect x="520" y="445" width="425" height="170" rx="18" fill="#ffffff" class="box"/>
+  <text x="548" y="493" class="node-title">指令解析與安全檢查</text>
+  <text x="548" y="530" class="node-text">左邊開燈 → on-left</text>
+  <text x="548" y="560" class="node-text">右邊開燈 → on-right</text>
+  <text x="548" y="590" class="node-text">左／右邊＋次數 → blink-側:N</text>
+
+  <rect x="520" y="660" width="425" height="92" rx="18" fill="#e6f1ea" stroke="#a9cdb8" stroke-width="2"/>
+  <text x="548" y="699" class="node-title">操作回饋</text>
+  <text x="548" y="730" class="node-text">辨識結果、執行結果、通訊錯誤</text>
+
+  <!-- USB -->
+  <rect x="1055" y="355" width="180" height="190" rx="22" fill="#e9edf0" class="box" filter="url(#shadow)"/>
+  <text x="1145" y="408" text-anchor="middle" class="group">USB</text>
+  <text x="1145" y="448" text-anchor="middle" class="node-title">Web Serial API</text>
+  <text x="1145" y="483" text-anchor="middle" class="node-text">COM5</text>
+  <text x="1145" y="516" text-anchor="middle" class="small">115200 baud</text>
+
+  <!-- Board -->
+  <rect x="1285" y="190" width="220" height="610" rx="26" fill="#edf6eb" stroke="#a7cba9" stroke-width="3"/>
+  <text x="1395" y="242" text-anchor="middle" class="group">AMB82-mini</text>
+  <rect x="1312" y="275" width="166" height="120" rx="16" fill="#ffffff" class="box"/>
+  <text x="1395" y="320" text-anchor="middle" class="node-title">序列指令處理</text>
+  <text x="1395" y="354" text-anchor="middle" class="small">驗證命令與次數</text>
+
+  <rect x="1312" y="440" width="166" height="132" rx="16" fill="#dff3ff" stroke="#98cbe2" stroke-width="2"/>
+  <circle cx="1342" cy="480" r="10" fill="#1597e5"/>
+  <text x="1362" y="487" class="node-title">藍燈</text>
+  <text x="1332" y="523" class="small">LED_B／D23</text>
+  <text x="1332" y="549" class="small">HIGH = 亮</text>
+
+  <rect x="1312" y="610" width="166" height="132" rx="16" fill="#e0f6e9" stroke="#9fcfb2" stroke-width="2"/>
+  <circle cx="1342" cy="650" r="10" fill="#2cad70"/>
+  <text x="1362" y="657" class="node-title">綠燈</text>
+  <text x="1332" y="693" class="small">LED_G／D24</text>
+  <text x="1332" y="719" class="small">HIGH = 亮</text>
+
+  <!-- connections -->
+  <path d="M395 325 H505" class="line"/>
+  <path d="M732 400 V435" class="line"/>
+  <path d="M945 530 H1040" class="line"/>
+  <path d="M1235 450 H1300" class="line"/>
+  <path d="M1395 395 V430" class="line"/>
+  <path d="M1395 572 V600" class="line"/>
+
+  <text x="1004" y="510" text-anchor="middle" class="label">控制指令</text>
+  <text x="1145" y="582" text-anchor="middle" class="label">USB 序列傳輸</text>
+
+  <!-- State feedback route -->
+  <path d="M1285 770 H1145 V855 H730 V766" class="return"/>
+  <text x="1005" y="842" text-anchor="middle" class="label">開發板回傳 STATE:left / right / off</text>
+
+  <!-- invalid and communication errors -->
+  <rect x="95" y="600" width="300" height="160" rx="22" fill="#fff5f3" stroke="#e3b7b0" stroke-width="2"/>
+  <text x="125" y="650" class="node-title">異常處理</text>
+  <text x="125" y="688" class="node-text">非控制語句 → 不傳送指令</text>
+  <text x="125" y="722" class="node-text">USB 中斷 → 顯示錯誤提示</text>
+  <path d="M395 680 H475" stroke="#b7665c" stroke-width="4" stroke-dasharray="9 7" fill="none" marker-end="url(#arrow)"/>
+
+  <text x="96" y="907" class="small">指令範例：on-left、on-right、blink-left:3、blink-right:4、status　｜　閃爍次數範圍：1–20</text>
+</svg>
