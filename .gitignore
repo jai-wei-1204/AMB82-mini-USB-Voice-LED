@@ -1,3 +1,9 @@
 **/wifi_secrets.h
 build/
 *.log
+
+# Local experiments and generated report files; do not publish to GitHub.
+WiFiCsiTest/
+tmp/pdf_render/
+output/
+CSI-test-result.md
