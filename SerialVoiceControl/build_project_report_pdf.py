@@ -94,7 +94,7 @@ def build():
     story += [P("三、操作說明", "CJKH1")]
     steps = [
         "將 AMB82-mini 以 USB 線連接電腦。",
-        "在 Arduino IDE 開啟 SerialSmokeTest.ino，選擇 Ameba AMB82-MINI 與 COM5，完成上傳。",
+        "在 Arduino IDE 開啟 SerialVoiceControl.ino，選擇 Ameba AMB82-MINI 與 COM5，完成上傳。",
         "關閉 Arduino IDE 的 Serial Monitor，避免 COM5 被占用。",
         "使用電腦版 Chrome 或 Edge 開啟 SerialVoiceControl.html。",
         "按下「連接 AMB82-mini」，在瀏覽器選擇器中選取 COM5。",
@@ -141,7 +141,7 @@ def build():
               P("在硬體控制方面，我學到不能只根據網頁送出的命令更新畫面。介面應等待 AMB82-mini 回傳 STATE 訊息後才顯示 LED 狀態，才能反映真正的執行結果。針對非控制語句與不合法次數，系統採取「不傳送或不執行」的方式，可避免誤動作。"),
               P("本次加分功能實作了「方向加次數」的動態控制，而不是固定幾句指令。例如使用者說「左邊三」或「右邊四次」，系統會解析方向與次數，再讓對應 LED 閃爍指定次數。未來可繼續加入中英文語音、語音回覆、更多 LED 模式，或改用離線語音模型以降低對瀏覽器服務的依賴。")]
     story += [P("七、原始碼與執行環境", "CJKH1"),
-              P("完整原始碼預計上傳至 GitHub，專案至少應包含 SerialSmokeTest.ino、SerialVoiceControl.html 與 README.md。"),
+              P("完整原始碼預計上傳至 GitHub，專案至少應包含 SerialVoiceControl.ino、SerialVoiceControl.html 與 README.md。"),
               table([
                   ["項目", "設定"],
                   ["開發板", "AMB82-mini"],

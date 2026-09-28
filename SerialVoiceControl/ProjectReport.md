@@ -56,7 +56,7 @@
 ## 三、操作說明
 
 1. 將 AMB82-mini 以 USB 線連接電腦。
-2. 在 Arduino IDE 開啟 `SerialSmokeTest.ino`，選擇開發板 `Ameba AMB82-MINI` 與序列埠 COM5，完成上傳。
+2. 在 Arduino IDE 開啟 `SerialVoiceControl.ino`，選擇開發板 `Ameba AMB82-MINI` 與序列埠 COM5，完成上傳。
 3. 關閉 Arduino IDE 的 Serial Monitor，避免 COM5 被占用。
 4. 使用電腦版 Chrome 或 Edge 開啟 `SerialVoiceControl.html`。
 5. 按下「連接 AMB82-mini」，在瀏覽器選擇器中選取 COM5。
@@ -116,7 +116,7 @@ AI 提供的是程式建議與文件協作；板卡接線、程式上傳、現�
 
 完整原始碼預計上傳至 GitHub，專案至少應包含：
 
-- `SerialSmokeTest.ino`：AMB82-mini USB 序列埠與 LED 控制韌體。
+- `SerialVoiceControl.ino`：AMB82-mini USB 序列埠與 LED 控制韌體。
 - `SerialVoiceControl.html`：電腦端語音辨識與 Web Serial 操作介面。
 - `README.md`：安裝與操作說明。
 
